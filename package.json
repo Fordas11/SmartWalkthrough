@@ -1,0 +1,13 @@
+{
+  "name": "smart-walkthrough",
+  "version": "0.1.0",
+  "description": "Web prototype for walking through augmented-reality buildings (three.js + WebXR)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.mjs 8000"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  }
+}

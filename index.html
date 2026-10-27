@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Smart Walkthrough</title>
+  <style>
+    :root {
+      --ink: #f4f6f8;
+      --ink-dim: #b9c2cb;
+      --panel: rgba(18, 24, 30, 0.62);
+      --panel-line: rgba(255, 255, 255, 0.14);
+      --accent: #7fe3c1;
+      --accent-ink: #06231b;
+      --gutter: 16px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #8fb4d1; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); -webkit-tap-highlight-color: transparent; }
+    #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+    #stage:active { cursor: grabbing; }
+
+    /* "AR look" simulation: a fake camera feed behind the transparent canvas */
+    body.sim { background:
+      linear-gradient(to bottom, #cfc8bc 0 46%, transparent 46%),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.07) 0 2px, transparent 2px 90px),
+      linear-gradient(to bottom, #8d8272 46%, #6a6054 100%); }
+    body.sim::after { content: "Simulated camera feed"; position: fixed; right: var(--gutter); bottom: 74px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: rgba(0,0,0,.45); pointer-events: none; }
+
+    .glass { background: var(--panel); border: 1px solid var(--panel-line); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); border-radius: 14px; }
+
+    header.brand { position: fixed; top: max(var(--gutter), env(safe-area-inset-top)); left: var(--gutter); padding: 9px 14px; font-weight: 600; letter-spacing: .01em; }
+    header.brand small { font-weight: 500; color: var(--ink-dim); margin-left: 6px; }
+
+    nav.bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(var(--gutter), env(safe-area-inset-bottom)); display: flex; gap: 6px; padding: 6px; max-width: calc(100vw - 2 * var(--gutter)); overflow-x: auto; scrollbar-width: none; }
+    nav.bar::-webkit-scrollbar { display: none; }
+    nav.bar .sep { width: 1px; background: var(--panel-line); margin: 4px 2px; flex: none; }
+    button { font: inherit; color: var(--ink); background: transparent; border: 0; border-radius: 10px; padding: 9px 14px; cursor: pointer; white-space: nowrap; flex: none; transition: background .15s, color .15s; }
+    button:hover:not(:disabled) { background: rgba(255,255,255,.12); }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.cta { background: rgba(127,227,193,.18); }
+
+    #hint { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(max(var(--gutter), env(safe-area-inset-bottom)) + 66px); max-width: calc(100vw - 2 * var(--gutter)); text-align: center; padding: 6px 12px; border-radius: 999px; font-size: 12px; color: var(--ink-dim); background: var(--panel); border: 1px solid var(--panel-line); pointer-events: none; }
+    #caption { position: fixed; left: 50%; top: max(64px, calc(env(safe-area-inset-top) + 56px)); transform: translate(-50%, -8px); max-width: min(560px, calc(100vw - 2 * var(--gutter))); padding: 10px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--panel-line); backdrop-filter: blur(14px); opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none; text-align: center; }
+    #caption.show { opacity: 1; transform: translate(-50%, 0); }
+
+    #joystick { position: fixed; width: 100px; height: 100px; margin: -50px 0 0 -50px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); background: rgba(255,255,255,.1); opacity: 0; pointer-events: none; transition: opacity .15s; }
+    #joystick.active { opacity: 1; }
+    #joystick .thumb { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; background: rgba(255,255,255,.6); }
+
+    /* DOM overlay shown inside the real AR session */
+    #ar-overlay { position: fixed; inset: 0; pointer-events: none; }
+    #ar-overlay[hidden] { display: none; }
+    #ar-overlay > * { pointer-events: auto; }
+    #ar-top { position: absolute; left: var(--gutter); right: var(--gutter); top: max(var(--gutter), env(safe-area-inset-top)); padding: 12px 14px; text-align: center; }
+    #ar-bottom { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(var(--gutter), env(safe-area-inset-bottom)); display: flex; gap: 6px; padding: 6px; max-width: calc(100vw - 2 * var(--gutter)); }
+    body.ar header.brand, body.ar nav.bar, body.ar #hint, body.ar #caption { display: none; }
+
+    @media (max-width: 520px) { header.brand small { display: none; } button { padding: 9px 11px; } }
+  </style>
+  <script type="importmap">
+    { "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <canvas id="stage" aria-label="3D walkthrough view"></canvas>
+
+  <header class="brand glass">Smart Walkthrough <small>prototype</small></header>
+
+  <div id="caption" role="status" aria-live="polite"></div>
+  <div id="hint"></div>
+  <div id="joystick" aria-hidden="true"><div class="thumb"></div></div>
+
+  <nav class="bar glass" aria-label="View controls">
+    <button data-mode="walk" class="on">Walk</button>
+    <button data-mode="orbit">Orbit</button>
+    <button data-mode="tour">Tour</button>
+    <button id="motion" hidden title="Look by tilting your phone, move by walking">Motion</button>
+    <span class="sep"></span>
+    <button id="roof" title="Hide the roof for a cutaway view">Cutaway</button>
+    <button id="sim" title="Preview the AR effect: landscape only visible through the window">AR look</button>
+    <span class="sep"></span>
+    <button id="ar" class="cta"><span>Enter AR</span></button>
+  </nav>
+
+  <div id="ar-overlay" hidden>
+    <div id="ar-top" class="glass"><span id="ar-status">Starting AR…</span></div>
+    <div id="ar-bottom" class="glass">
+      <button data-scale="1" class="on">Life-size</button>
+      <button data-scale="0.25">1:4</button>
+      <button data-scale="0.05">1:20 tabletop</button>
+      <button id="ar-replace" hidden>Re-place</button>
+      <button id="ar-exit">Exit</button>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
